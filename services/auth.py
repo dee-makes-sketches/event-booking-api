@@ -47,6 +47,7 @@ async def login_user(form_data:Annotated[OAuth2PasswordRequestForm, Depends()], 
         .where(func.lower(User.email) == form_data.username.lower())
     )
     user = result.scalars().first()
+    
     if not user:
         return None
     if not verify_password(form_data.password, user.hashed_password):
