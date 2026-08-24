@@ -12,6 +12,8 @@ from models.base import Base
 import models.user
 import models.venue
 import models.event
+import models.seat
+import models.booking
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

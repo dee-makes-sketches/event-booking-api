@@ -3,55 +3,85 @@ from schemas.event import EventCreate, EventUpdateFull, EventUpdatePartial
 from models.user import User
 from models.event import Event, EventStatus
 
-from sqlalchemy import select, func
+from sqlalchemy import select
+from services.seat import seat_generation 
 from models.venue import Venue
-from utils.exceptions import VenueOwnershipError, EventTimeConflictError, EventOwnershipError
+from models.booking import Booking, BookingStatus
+from utils.exceptions import VenueOwnershipError, EventTimeConflictError, EventOwnershipError, SeatCapacityExceededError, EventHasActiveBookingsError
 
 
 #organiser who owns the venue should be able to create event
 async def create_event(
-    event_data:EventCreate,
-    current_user:User,
-    db:AsyncSession
-    ):
-    result = await db.execute(select(Venue).where(Venue.id == event_data.venue_id))
+    event_data: EventCreate,
+    current_user: User,
+    db: AsyncSession
+):
+    result = await db.execute(
+        select(Venue).where(Venue.id == event_data.venue_id)
+    )
     venue = result.scalars().first()
 
     if venue is None:
         return None
 
-    #ownership check
-    if venue.organiser_id != current_user.id :
+    # Ownership check
+    if venue.organiser_id != current_user.id:
         raise VenueOwnershipError()
 
-    #check event time conflict
+    # Check event time conflict
     result = await db.execute(
-        select(Event)
-        .where(
-            Event.venue_id == event_data.venue_id, #all events that has venue_id same as requested one
+        select(Event).where(
+            Event.venue_id == event_data.venue_id,
             Event.start_time < event_data.end_time,
             Event.end_time > event_data.start_time
         )
     )
+
     existing_event = result.scalars().first()
+
     if existing_event:
         raise EventTimeConflictError()
 
-    new_event = Event(
-        title = event_data.title,
-        description = event_data.description,
-        start_time = event_data.start_time,
-        end_time = event_data.end_time,
-        status = event_data.status,
-        venue_id = event_data.venue_id,
-        organiser_id=current_user.id
+    try:
+        new_event = Event(
+            title=event_data.title,
+            description=event_data.description,
+            start_time=event_data.start_time,
+            end_time=event_data.end_time,
+            status=event_data.status,
+            venue_id=event_data.venue_id,
+            organiser_id=current_user.id,
+        )
 
-    )
-    db.add(new_event)
-    await db.commit()
-    await db.refresh(new_event)
+        db.add(new_event)
 
-    return new_event
+        # Get new_event.id without committing
+        await db.flush()
+
+        # Venue capacity check
+        if event_data.rows * event_data.seat_per_row > venue.capacity:
+            raise SeatCapacityExceededError()
+
+        # Generate seats
+        seats = seat_generation(
+            rows=event_data.rows,
+            seat_per_row=event_data.seat_per_row,
+            new_event_id=new_event.id
+        )
+
+        db.add_all(seats)
+
+        # Commit event + all seats together
+        await db.commit()
+        
+        await db.refresh(new_event)
+
+        return new_event
+
+    except Exception:
+        # Undo everything if anything fails
+        await db.rollback()
+        raise
 
 #get all events
 async def get_events(db:AsyncSession):
@@ -199,7 +229,14 @@ async def delete_event(
     if event.organiser_id != current_user.id:
         raise EventOwnershipError()
 
-    await db.delete(event)
+    if event.status == EventStatus.DRAFT:
+        await db.delete(event)
+        await db.commit()
+        return True
+
+    #await db.delete(event) dont blindly delete event 
+    event.status = EventStatus.CANCELLED
+   
     await db.commit()
     return True
 

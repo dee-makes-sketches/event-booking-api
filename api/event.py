@@ -1,15 +1,16 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 
 from schemas.event import EventCreate, EventResponse, EventUpdateFull, EventUpdatePartial
-
+from schemas.seat import SeatResponse
 from utils.dependencies import get_db, require_role, require_organiser_or_customer
 from typing import Annotated
 
-from utils.exceptions import VenueOwnershipError, EventTimeConflictError, EventOwnershipError
+from utils.exceptions import VenueOwnershipError, EventTimeConflictError, EventOwnershipError, SeatCapacityExceededError, EventHasActiveBookingsError
 from models.user import User, UserRole
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from services import event
+from services import seat
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -33,6 +34,11 @@ async def create_event(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="event with that timing already exists"
+        )
+    except SeatCapacityExceededError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Seat count exceeds Venue capacity"
         )
 
     if result is None:
@@ -155,5 +161,34 @@ async def delete_event(
             detail="Event not found"
         )
 
+
+#customer can check seat availablity
+@router.get("/{event_id}/seats", response_model=list[SeatResponse])  #list of dic
+async def get_event_seats(
+    event_id:int,
+    current_user:Annotated[User, Depends(require_organiser_or_customer)],
+    db:db_session
+):
+    try:
+        result = await seat.get_event_seats(event_id, current_user, db)
+
+    except EventOwnershipError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view these seats"
+        )
+
+    except EventHasActiveBookingsError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete event with existing bookings. Cancel the event instead."
+        )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+    
+    return result
 
     

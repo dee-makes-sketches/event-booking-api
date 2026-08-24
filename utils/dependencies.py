@@ -67,7 +67,10 @@ def require_organiser_or_customer(current_user:CurrentUser):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     return current_user
 
-
+"""def require_customer(current_user:CurrentUser):
+    if current_user.role != UserRole.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+    return current_user"""
 
         
 
