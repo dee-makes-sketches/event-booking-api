@@ -9,8 +9,10 @@ from models.venue import Venue
 from models.booking import Booking, BookingStatus
 from utils.exceptions import VenueOwnershipError, EventTimeConflictError, EventOwnershipError, SeatCapacityExceededError, EventHasActiveBookingsError
 
+from utils.constants import validate_status_transition
+from services import booking
 
-#organiser who owns the venue should be able to create event
+#organiser who owns the venue should be able to create event.
 async def create_event(
     event_data: EventCreate,
     current_user: User,
@@ -83,6 +85,7 @@ async def create_event(
         await db.rollback()
         raise
 
+
 #get all events
 async def get_events(db:AsyncSession):
     result = await db.execute(
@@ -134,6 +137,7 @@ async def update_event_full(
         select(Event).where(Event.id == event_id)
     )
     event = result.scalars().first()
+
     if event is None:
         return None
 
@@ -153,7 +157,20 @@ async def update_event_full(
     existing_event = result.scalars().first()
     if existing_event:
         raise EventTimeConflictError()
-    
+
+    #valid state transition 
+    if event_data.status != event.status:
+        validate_status_transition(
+            event.status,
+            event_data.status
+        )
+
+        #event is being cancelled
+        if event_data.status == EventStatus.CANCELLED:
+            await booking.cancel_event_bookings(event.id, db)
+
+
+
     event.title = event_data.title
     event.description = event_data.description
     event.start_time = event_data.start_time
@@ -200,8 +217,21 @@ async def update_event_partial(
         )
 
     existing_event = result.scalars().first()
+    
     if existing_event:
         raise EventTimeConflictError()
+
+    # valid state transition
+    if "status" in updated_data:
+        if updated_data["status"] != event.status:
+            validate_status_transition(
+                event.status,
+                updated_data["status"]
+            )
+        #event is being cancelled
+        if updated_data["status"] == EventStatus.CANCELLED:
+            await booking.cancel_event_bookings(event.id,db)
+
 
     for field, value in updated_data.items():
         setattr(event, field, value)
@@ -239,6 +269,9 @@ async def delete_event(
    
     await db.commit()
     return True
+
+
+
 
 
 

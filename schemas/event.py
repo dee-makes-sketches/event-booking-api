@@ -13,6 +13,13 @@ class EventCreate(EventBase):
     status:EventStatus = EventStatus.DRAFT   #default to DRAFT
     venue_id:int = Field(gt=0)
 
+    @model_validator(mode="after")
+    def validate_event_times(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be strictly after start_time")
+        return self
+
+
     #seat configuration
     rows: int = Field(ge=1, le=20)
     seat_per_row: int = Field(ge=1, le=10)

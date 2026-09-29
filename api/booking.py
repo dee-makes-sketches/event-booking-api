@@ -8,8 +8,8 @@ from core.database import get_db
 from services import booking
 from utils.dependencies import require_role
 
-from schemas.booking import BookingResponse
-from utils.exceptions import SeatNotAvailableError, SeatNotFoundError, EventNotPublishedError
+from schemas.booking import BookingResponse, BookingCreate
+from utils.exceptions import SeatNotAvailableError, SeatNotFoundError, EventNotPublishedError,ForcedBookingFailure, EventOwnershipError, BookingAlreadyCancelledError
 
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
@@ -20,13 +20,12 @@ db_session = Annotated[AsyncSession, Depends(get_db)]
 #create bookings
 @router.post("", response_model=BookingResponse)
 async def create_booking(
-    event_id:int,
-    seat_id:int,
+    booking_data:BookingCreate,
     current_user:Annotated[User, Depends(require_role(UserRole.CUSTOMER))],
     db:db_session
 ):
     try:
-        result = await booking.create_booking(event_id, seat_id, current_user, db)
+        result = await booking.create_booking(booking_data, current_user, db)
     except SeatNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -42,6 +41,13 @@ async def create_booking(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Bookings are not available for this event"
         )    
+
+    """except ForcedBookingFailure:
+        raise HTTPException(
+            status_code=500,
+            detail="Forced failure for rollback test"
+        )"""
+    
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -62,6 +68,42 @@ async def get_bookings(
         )
     return result
 
+
+@router.get("/organiser")
+async def get_organiser_bookings(
+    current_user:Annotated[User, Depends(require_role(UserRole.ORGANISER))],
+    db:db_session
+):
+    result = await booking.get_organiser_bookings(current_user, db)
+    return result
+
+
+
+@router.get("/organizer/events/{event_id}")
+async def get_event_bookings(
+    event_id:int,
+    current_user:Annotated[User, Depends(require_role(UserRole.ORGANISER))],
+    db:db_session
+):
+    try:
+        result = await booking.get_event_bookings(event_id, current_user, db)
+
+    except EventOwnershipError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this event"
+        )
+    
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    return result
+
+
+
 @router.get("/{booking_id}", response_model=BookingResponse)
 async def get_booking(
     booking_id:int,
@@ -76,16 +118,25 @@ async def get_booking(
         )
     return result
 
+
+
 @router.delete("/{booking_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_booking(
     booking_id:int,
     current_user:Annotated[User, Depends(require_role(UserRole.CUSTOMER))],
     db:db_session
 ):
-    result = await booking.delete_booking(booking_id, current_user, db)
-
+    try:
+        result = await booking.delete_booking(booking_id, current_user, db)
+        
+    except BookingAlreadyCancelledError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Booking is already cancelled"
+        )
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Booking not found or access denied"
         )
+

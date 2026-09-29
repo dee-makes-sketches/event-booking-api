@@ -54,6 +54,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)] #auth dependency
 #role dependency
 def require_role(required_role:UserRole):
     async def role_checker(current_user:CurrentUser): #dependecy is called here automatically
+        
         if current_user.role != required_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -61,6 +62,7 @@ def require_role(required_role:UserRole):
             )
         return current_user
     return role_checker
+
 
 def require_organiser_or_customer(current_user:CurrentUser):
     if current_user.role not in [UserRole.CUSTOMER, UserRole.ORGANISER]:
@@ -71,8 +73,6 @@ def require_organiser_or_customer(current_user:CurrentUser):
     if current_user.role != UserRole.CUSTOMER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     return current_user"""
-
-        
 
 
 

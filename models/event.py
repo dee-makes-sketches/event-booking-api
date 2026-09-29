@@ -3,7 +3,7 @@ import enum
 from sqlalchemy import Integer, String, ForeignKey, DateTime, func, Enum, CheckConstraint
 from sqlalchemy.orm import mapped_column, Mapped
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 class EventStatus(str, enum.Enum):
     DRAFT = "draft"

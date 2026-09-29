@@ -21,3 +21,19 @@ class EventHasActiveBookingsError(Exception):
 
 class EventNotPublishedError(Exception):
     pass
+
+
+class InvalidEventStatusTransition(Exception):
+    pass
+
+class BookingAlreadyCancelledError(Exception):
+    pass
+
+
+
+
+
+
+
+class ForcedBookingFailure(Exception):
+    pass
